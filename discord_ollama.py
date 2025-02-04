@@ -84,7 +84,6 @@ def get_image_base64(url, fmt):
     im.save(buffered, format=fmt)
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-
 @bot.command()
 async def chinabot(ctx, *args, think = False):
 
@@ -124,47 +123,45 @@ async def chinabot(ctx, *args, think = False):
                'content': input_str,
                'images': images}
 
-    await ctx.typing()
+    async with ctx.typing():
 
-    async for part in await ollama_client.chat(model=model, messages=[message], stream=True):
+        async for part in await ollama_client.chat(model=model, messages=[message], stream=True):
 
-        await ctx.typing()
+            bits += 1
+            bit = part['message']['content']
+            done = part['done']
+            if bit == '<think>':
+                logger.debug(f"Think Block - uuid: '{uuid}', message: 'Start'")
+                thinking = True
 
-        bits += 1
-        bit = part['message']['content']
-        done = part['done']
-        if bit == '<think>':
-            logger.debug(f"Think Block - uuid: '{uuid}', message: 'Start'")
-            thinking = True
+                if think:
+                    logger.debug(f"Think Block - uuid: '{uuid}', message: 'Writing'")
 
-            if think:
-                logger.debug(f"Think Block - uuid: '{uuid}', message: 'Writing'")
+                else:
+                    logger.debug(f"Think Block - uuid: '{uuid}', message: 'Skipping'")
 
-            else:
-                logger.debug(f"Think Block - uuid: '{uuid}', message: 'Skipping'")
+            if (think and thinking) or (not thinking):
+                response.append(bit)
+                if bit == '\n\n' or done or response_split(response):
+                    chunk = "".join(response)
+                    chunks += 1
+                    if len(chunk) > 0 and not chunk == "\n\n":
+                        await ctx.send(chunk)
+                    response = []
 
-        if (think and thinking) or (not thinking):
-            response.append(bit)
-            if bit == '\n\n' or done or response_split(response):
-                chunk = "".join(response)
-                chunks += 1
-                if len(chunk) > 0 and not chunk == "\n\n":
-                    await ctx.send(chunk)
-                response = []
+            if bit == '</think>':
+                logger.debug(f"Think Block - uuid: '{uuid}', message: 'End'")
+                thinking = False
 
-        if bit == '</think>':
-            logger.debug(f"Think Block - uuid: '{uuid}', message: 'End'")
-            thinking = False
-
-        if done:
-            end = time()
-            duration = round(end - start,2)
-            logger.info(f"Command Completion - uuid: '{uuid}', "
-                        f"user: '{ctx.message.author}', "
-                        f"command: '{ctx.command}', "
-                        f"duration_s: '{duration}' "
-                        f"bits: {bits}, "
-                        f"chunks: {chunks}")
+            if done:
+                end = time()
+                duration = round(end - start,2)
+                logger.info(f"Command Completion - uuid: '{uuid}', "
+                            f"user: '{ctx.message.author}', "
+                            f"command: '{ctx.command}', "
+                            f"duration_s: '{duration}' "
+                            f"bits: {bits}, "
+                            f"chunks: {chunks}")
 
 bot.on_command_error = on_command_error
 bot.run(discord_token, log_handler=handler)
