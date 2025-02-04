@@ -1,4 +1,4 @@
-FROM python:3.14
+FROM python:3
 
 LABEL maintainer="MaximumPigs - https://github.com/maximumpigs/discord_ollama_bot"
 LABEL org.opencontainers.image.authors="MaximumPigs"
