@@ -152,7 +152,7 @@ async def chinabot(ctx, *args, think = True):
             if bit == '<think>':
                 logger.debug(f"Think Block - uuid: '{uuid}', message: 'Start'")
                 thinking = True
-                bit = ''
+                bit = '```'
 
                 if think:
                     logger.debug(f"Think Block - uuid: '{uuid}', message: 'Writing'")
@@ -168,12 +168,15 @@ async def chinabot(ctx, *args, think = True):
             if (think and thinking) or (not thinking):
                 response.append(bit)
 
+            print(bit, thinking)
+
             if bit == '\n\n' or done or response_split(response):
                 if think and thinking:
                     response.append('```')
-                    response.insert(0, '```')
+                    if response[0] != '```':
+                        response.insert(0, '```')
+                print(response)
                 chunk = "".join(response)
-                print(chunk)
                 chunks += 1
                 if len(chunk) > 0 and not chunk == "\n\n":
                     await ctx.send(chunk)
