@@ -7,8 +7,10 @@ from PIL import Image
 from io import BytesIO
 import base64
 import logging
+import json
 from uuid import uuid4
 from time import time
+from redis import Redis
 
 ### GET ENVIRONMENT VARIABLES
 
@@ -16,6 +18,8 @@ discord_token = environ['DISCORD_TOKEN']
 ollama_host = environ['OLLAMA_HOST']
 chat_model = environ['CHAT_MODEL']
 image_model = environ['IMAGE_MODEL']
+redis_host = environ['REDIS_HOST']
+redis_port = environ['REDIS_PORT']
 
 ### SET UP LOGGING
 
@@ -30,16 +34,21 @@ ollama_client = AsyncClient(
     host=ollama_host,
 )
 
+### SET UP REDIS
+
+redis = Redis(host=redis_host, port=redis_port, db=0)
+
 ### SET UP DISCORD BOT
 
 intents = Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='>', intents=intents)
-chunk_length = 1500
+chunk_length = 1700
 
 
 async def on_command_error(ctx, error):
     await ctx.send(f'An error occurred: {error}')
+    print(error)
 
 def response_split(response):
     """
@@ -48,7 +57,7 @@ def response_split(response):
     :return: Boolean.
     """
     res = ''.join(response)
-    if len(res) > chunk_length and res[-1] == ".":
+    if len(res) > chunk_length and res.endswith(".\n\n"):
         return True
 
 
@@ -85,7 +94,7 @@ def get_image_base64(url, fmt):
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 @bot.command()
-async def chinabot(ctx, *args, think = False):
+async def chinabot(ctx, *args, think = True):
 
     uuid = uuid4()
     bits = 0
@@ -95,6 +104,13 @@ async def chinabot(ctx, *args, think = False):
     input_str = ' '.join(args)
     attachments = ctx.message.attachments
     thinking = False
+
+    chinabot_history = redis.get('chinabot_history')
+
+    if not chinabot_history:
+        chinabot_history = "[]"
+
+    chinabot_history = json.loads(chinabot_history)
 
     logger.info(f"Command Invocation - uuid: '{uuid}', "
                 f"user: '{ctx.message.author}', "
@@ -125,14 +141,18 @@ async def chinabot(ctx, *args, think = False):
 
     async with ctx.typing():
 
-        async for part in await ollama_client.chat(model=model, messages=[message], stream=True):
-
+        async for part in await ollama_client.generate(model=model, prompt=input_str, images=images, context=chinabot_history, stream=True):
             bits += 1
-            bit = part['message']['content']
+            bit = part['response']
             done = part['done']
+
+            if len(response) == 0:
+                bit = bit.lstrip()
+
             if bit == '<think>':
                 logger.debug(f"Think Block - uuid: '{uuid}', message: 'Start'")
                 thinking = True
+                bit = ''
 
                 if think:
                     logger.debug(f"Think Block - uuid: '{uuid}', message: 'Writing'")
@@ -140,20 +160,29 @@ async def chinabot(ctx, *args, think = False):
                 else:
                     logger.debug(f"Think Block - uuid: '{uuid}', message: 'Skipping'")
 
-            if (think and thinking) or (not thinking):
-                response.append(bit)
-                if bit == '\n\n' or done or response_split(response):
-                    chunk = "".join(response)
-                    chunks += 1
-                    if len(chunk) > 0 and not chunk == "\n\n":
-                        await ctx.send(chunk)
-                    response = []
-
             if bit == '</think>':
                 logger.debug(f"Think Block - uuid: '{uuid}', message: 'End'")
+                bit = '```'
                 thinking = False
 
+            if (think and thinking) or (not thinking):
+                response.append(bit)
+
+            if bit == '\n\n' or done or response_split(response):
+                if think and thinking:
+                    response.append('```')
+                    response.insert(0, '```')
+                chunk = "".join(response)
+                print(chunk)
+                chunks += 1
+                if len(chunk) > 0 and not chunk == "\n\n":
+                    await ctx.send(chunk)
+                response = []
+                if think and thinking:
+                    response.append('```')
+
             if done:
+                context = part['context']
                 end = time()
                 duration = round(end - start,2)
                 logger.info(f"Command Completion - uuid: '{uuid}', "
@@ -162,6 +191,18 @@ async def chinabot(ctx, *args, think = False):
                             f"duration_s: '{duration}' "
                             f"bits: {bits}, "
                             f"chunks: {chunks}")
+                redis.set('chinabot_history', json.dumps(context))
+
+@bot.command()
+async def delete_history(ctx, *args):
+    redis.delete('chinabot_history')
+
+@bot.command()
+async def get_history(ctx, *args):
+    chinabot_history = redis.get('chinabot_history')
+    if not chinabot_history:
+        chinabot_history = "Empty"
+    await ctx.send(chinabot_history)
 
 bot.on_command_error = on_command_error
 bot.run(discord_token, log_handler=handler)
