@@ -171,14 +171,11 @@ async def chinabot(ctx, *args, think = True):
             if (think and thinking) or (not thinking):
                 response.append(bit)
 
-            print(bit, thinking)
-
             if bit == '\n\n' or done or response_split(response):
                 if think and thinking:
                     response.append('```')
                     if response[0] != '```':
                         response.insert(0, '```')
-                print(response)
                 chunk = "".join(response)
                 chunks += 1
                 if len(chunk) > 0 and not chunk == "\n\n":
@@ -208,8 +205,11 @@ async def delete_history(ctx, *args):
 async def get_history(ctx, *args):
     chinabot_history = redis.get('chinabot_history')
     if not chinabot_history:
-        chinabot_history = "Empty"
-    await ctx.send(chinabot_history)
+        await ctx.send("Empty")
+    else:
+        chinabot_history = json.loads(chinabot_history)
+        for model in chinabot_history:
+            await ctx.send(f"Model: {model}, Entries: {len(chinabot_history[model])}")
 
 bot.on_command_error = on_command_error
 bot.run(discord_token, log_handler=handler)
