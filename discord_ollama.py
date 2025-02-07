@@ -105,13 +105,6 @@ async def chinabot(ctx, *args, think = True):
     attachments = ctx.message.attachments
     thinking = False
 
-    chinabot_history = redis.get('chinabot_history')
-
-    if not chinabot_history:
-        chinabot_history = "[]"
-
-    chinabot_history = json.loads(chinabot_history)
-
     logger.info(f"Command Invocation - uuid: '{uuid}', "
                 f"user: '{ctx.message.author}', "
                 f"command: '{ctx.command}', "
@@ -133,6 +126,16 @@ async def chinabot(ctx, *args, think = True):
     else:
         model = chat_model
 
+    chinabot_history = redis.get('chinabot_history')
+
+    if not chinabot_history:
+        chinabot_history = "{}"
+
+    chinabot_history = json.loads(chinabot_history)
+
+    if model not in chinabot_history:
+        chinabot_history[model] = []
+
     logger.debug(f"Model Selection - uuid: '{uuid}', model: '{model}'")
 
     message = {'role': 'user',
@@ -141,7 +144,7 @@ async def chinabot(ctx, *args, think = True):
 
     async with ctx.typing():
 
-        async for part in await ollama_client.generate(model=model, prompt=input_str, images=images, context=chinabot_history, stream=True):
+        async for part in await ollama_client.generate(model=model, prompt=input_str, images=images, context=chinabot_history[model], stream=True):
             bits += 1
             bit = part['response']
             done = part['done']
@@ -194,7 +197,8 @@ async def chinabot(ctx, *args, think = True):
                             f"duration_s: '{duration}' "
                             f"bits: {bits}, "
                             f"chunks: {chunks}")
-                redis.set('chinabot_history', json.dumps(context))
+                chinabot_history[model] = context
+                redis.set('chinabot_history', json.dumps(chinabot_history))
 
 @bot.command()
 async def delete_history(ctx, *args):
